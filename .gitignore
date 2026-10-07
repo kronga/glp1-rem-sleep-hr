@@ -1,0 +1,15 @@
+# Everything the pipeline writes. Much of it is participant-level and must never be committed.
+outputs/
+src/visit_transition_analysis/
+paper/figures/final/
+paper/tables/
+paper/NUMBERS.md
+
+# Local-only label -> participant-key crosswalk used by Figure 1. Never commit.
+paper/.participant_crosswalk.json
+
+*.parquet
+*.pkl
+*.xlsx
+__pycache__/
+*.pyc
