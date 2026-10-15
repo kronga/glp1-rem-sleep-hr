@@ -824,7 +824,7 @@ def variant_d_paired_contrast(ax: plt.Axes, panel_letter: str = "d",
 
     ax.set_ylim(-0.16, 0.42)
     ax.set_yticks([])
-    ax.set_xlabel("REM − non-REM difference-in-differences (bpm)")
+    ax.set_xlabel("REM − NREM difference-in-differences (bpm)")
     if show_title:
         ax.set_title("Paired state contrast, per matched pair", loc="left", pad=5.0)
     ax.grid(axis="x", color="#ECECEC", linewidth=0.6)
@@ -853,7 +853,7 @@ def variant_d_paired_contrast(ax: plt.Axes, panel_letter: str = "d",
 # error; these are honest per-row complete cases.
 PRIMARY_1TO1 = {
     "REM": "heart_rate_mean_during_rem",
-    "Non-REM": "heart_rate_mean_during_nrem",
+    "NREM": "heart_rate_mean_during_nrem",
     "Whole sleep": "heart_rate_mean_during_sleep",
     "Nocturnal wake": "heart_rate_mean_during_wake",
 }
@@ -938,7 +938,7 @@ def _state_contrast_bracket(ax: plt.Axes, positions, rows, x: float,
         q = float(pd.read_csv(CONTRASTS).set_index("contrast")
                   .loc[PRIMARY_CONTRAST].fdr_within_contrast_family)
     y_top = positions[rows.index("REM")]
-    y_bottom = positions[rows.index("Non-REM")]
+    y_bottom = positions[rows.index("NREM")]
     tick = 0.035 * span
     ax.plot([x - tick, x, x, x - tick], [y_top, y_top, y_bottom, y_bottom],
             color=BLACK, linewidth=0.7, solid_capstyle="butt", zorder=6,
@@ -1193,7 +1193,7 @@ def main() -> int:
     contrast = load_state_contrast()
     # Two lines: one 130-character line pushes the tight bbox past 179 mm and
     # fit_to_width cannot shrink text, so it silently widens the canvas instead.
-    banner = (f"REM − non-REM = {contrast['abs_did']:+.2f} bpm "
+    banner = (f"REM − NREM = {contrast['abs_did']:+.2f} bpm "
               f"[{contrast['abs_lo']:.2f}, {contrast['abs_hi']:.2f}], "
               f"q = {contrast['abs_q']:.5f}   (n = {contrast['n']} pairs)")
     if "ratio" in contrast:

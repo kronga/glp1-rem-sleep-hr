@@ -106,11 +106,11 @@ STAGE_COLOUR = {"wake": SKY, "rem": VERMILLION, "light": BLUE, "deep": "#31456B"
 # The paper's primary matched-DiD sleep estimates (PAPER_REANALYSIS.md).
 PRIMARY = [
     ("REM", 6.97, 4.36, 9.72, 41),
-    ("Non-REM (pooled)", 5.61, 2.77, 8.37, 41),
+    ("NREM (pooled)", 5.61, 2.77, 8.37, 41),
     ("Whole sleep", 5.54, 2.82, 8.17, 44),
     ("Wake in study", 4.20, 1.32, 6.76, 44),
 ]
-CONTRAST = {"label": "REM − non-REM", "did": 1.36, "low": 0.67, "high": 2.05, "q": 0.00088}
+CONTRAST = {"label": "REM − NREM", "did": 1.36, "low": 0.67, "high": 2.05, "q": 0.00088}
 
 
 def configure_style() -> None:

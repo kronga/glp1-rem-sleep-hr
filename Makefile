@@ -27,13 +27,15 @@ cohort:
 	$(PY) steps/48_unified_cohort.py --exposure any_glp1 --modalities sleep,anthropometrics,blood_pressure --skip-raw
 	$(PY) steps/48_unified_cohort.py --exposure non_semaglutide --modalities sleep,anthropometrics,blood_pressure --skip-raw
 
-# Sleep secondary analyses, overlap-weighted alternative matching, and sleep robustness.
+# Sleep secondary analyses, overlap-weighted alternative matching, sleep robustness, and the
+# comparison with weight loss without the drug (Figure 4).
 secondary:
 	$(PY) steps/49_unified_sleep_secondary.py
 	$(PY) steps/50_unified_alternative_matching.py
 	$(PY) steps/51_unified_sleep_robustness.py
+	$(PY) steps/52_natural_weight_loss_sleep_hr.py
 
-# Figure 1 (needs paper/.participant_crosswalk.json), then Figures 2-4 and S1-S6.
+# Figure 1 (needs paper/.participant_crosswalk.json), then Figures 2-4 and S1-S7.
 figs:
 	$(PY) paper/build_fig1_unified.py
 	$(PY) paper/build_unified_figures.py

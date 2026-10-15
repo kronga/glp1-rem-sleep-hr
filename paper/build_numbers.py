@@ -228,8 +228,8 @@ def main() -> int:
 
     tables = {
         "table1_baseline": baseline_table(balance, n_sleep),
-        "table2_design": design_table(status, primary),
-        "table3_primary": estimate_rows(primary[primary.modality.isin(["sleep", "blood_pressure", "dxa"])], [
+        "tableS2_design": design_table(status, primary),
+        "table2_primary": estimate_rows(primary[primary.modality.isin(["sleep", "blood_pressure", "dxa"])], [
             "heart_rate_mean_during_sleep", "heart_rate_mean_during_wake",
             "heart_rate_mean_during_nrem", "heart_rate_mean_during_rem",
             "heart_rate_rem_minus_nrem", "ahi", "odi", "sitting_blood_pressure_systolic",
@@ -264,7 +264,7 @@ def main() -> int:
                 f"after the recorded start ({int(timing.loc['sleep', 'n_pairs_with_dates'])} matched pairs)",
                 "",
                 "## Table 1. Baseline characteristics (sleep cohort)", "", md_table(tables["table1_baseline"]), "",
-                "## Table 2. Matched design by modality", "", md_table(tables["table2_design"]), "",
+                "## Supplementary Table S2. Matched design by modality", "", md_table(tables["tableS2_design"]), "",
                 "## All primary estimates in passing modalities ("
                 + ", ".join(MODALITY_NAMES[m] for m in passing)
                 + "; the 272 microbial pathways are not listed)", "",

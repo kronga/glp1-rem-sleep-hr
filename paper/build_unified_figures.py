@@ -31,6 +31,7 @@ FINAL_RUN = (
 SECONDARY = RUN / "outputs/unified_cohort/secondary_sleep"
 ALTERNATIVE = RUN / "outputs/unified_cohort/alternative_matching"
 ROBUST = RUN / "outputs/unified_cohort/sleep_robustness"
+NATURAL_LOSS = RUN / "outputs/natural_weight_loss_sleep_hr"
 FIGURES = RUN / "paper/figures/final"
 TABLES = RUN / "paper/tables"
 
@@ -60,11 +61,11 @@ LABELS = {
     "sitting_blood_pressure_systolic": "Systolic BP",
     "sitting_blood_pressure_diastolic": "Diastolic BP",
     "sitting_blood_pressure_pulse_rate": "Sitting pulse",
-    "heart_rate_mean_during_sleep": "Whole-sleep HR",
+    "heart_rate_mean_during_sleep": "Overall sleep HR",
     "heart_rate_mean_during_wake": "Nocturnal wake HR",
-    "heart_rate_mean_during_nrem": "Non-REM HR",
+    "heart_rate_mean_during_nrem": "NREM HR",
     "heart_rate_mean_during_rem": "REM HR",
-    "heart_rate_rem_minus_nrem": "REM − non-REM HR",
+    "heart_rate_rem_minus_nrem": "REM − NREM HR",
     "heart_rate_mean_during_light": "Light-sleep HR",
     "heart_rate_mean_during_deep": "Deep-sleep HR",
     "heart_rate_rem_minus_light": "REM − light HR",
@@ -80,9 +81,9 @@ LABELS = {
     "neurokit_hrv_time_pnn20_during_rem": "REM pNN20",
     "neurokit_hrv_time_rmssd_during_rem": "REM RMSSD",
     "neurokit_hrv_time_sdnn_during_rem": "REM SDNN",
-    "neurokit_hrv_time_pnn20_during_nrem": "Non-REM pNN20",
-    "neurokit_hrv_time_rmssd_during_nrem": "Non-REM RMSSD",
-    "neurokit_hrv_time_sdnn_during_nrem": "Non-REM SDNN",
+    "neurokit_hrv_time_pnn20_during_nrem": "NREM pNN20",
+    "neurokit_hrv_time_rmssd_during_nrem": "NREM RMSSD",
+    "neurokit_hrv_time_sdnn_during_nrem": "NREM SDNN",
     "body_comp_android_fat_mass": "Android fat mass",
     "body_comp_gynoid_fat_mass": "Gynoid fat mass",
     "body_comp_total_fat_mass": "Total fat mass",
@@ -207,6 +208,13 @@ ROBUST_FILES = {
     "systemic": "systemic_rise_adjustment",
 }
 
+# steps/52_natural_weight_loss_sleep_hr.py outputs, read by Figure 4a and 4b.
+NATURAL_LOSS_FILES = {
+    "loss_points": "rem_hr_vs_weight_points",
+    "loss_slopes": "hr_change_slopes",
+    "loss_matched": "loss_matched_comparison",
+}
+
 
 def load_inputs() -> dict[str, pd.DataFrame]:
     required = [
@@ -224,6 +232,7 @@ def load_inputs() -> dict[str, pd.DataFrame]:
         ALTERNATIVE / "design_selection.csv",
         ALTERNATIVE / "posthoc_selected_hierarchical_results.csv",
         *(ROBUST / f"{name}.csv" for name in ROBUST_FILES.values()),
+        *(NATURAL_LOSS / f"{name}.csv" for name in NATURAL_LOSS_FILES.values()),
     ]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
@@ -247,6 +256,8 @@ def load_inputs() -> dict[str, pd.DataFrame]:
             ALTERNATIVE / "posthoc_selected_hierarchical_results.csv"
         ),
         **{key: pd.read_csv(ROBUST / f"{name}.csv") for key, name in ROBUST_FILES.items()},
+        **{key: pd.read_csv(NATURAL_LOSS / f"{name}.csv")
+           for key, name in NATURAL_LOSS_FILES.items()},
     }
 
 
@@ -477,7 +488,7 @@ def figure2(data: dict[str, pd.DataFrame]) -> None:
                label="1:1 matched, balance failed"),
         Line2D([], [], marker="D", color=PURPLE, linestyle="none", label="Weighted"),
         Line2D([], [], marker="D", markerfacecolor="white", markeredgecolor=PURPLE,
-               linestyle="none", label="Weighted, no outcome-complete\nsample balanced"),
+               linestyle="none", label="Weighted, not balanced\nfor any outcome"),
     ], frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.15),
        ncol=1, fontsize=6.2)
     panel_label(ax, "b", x=-0.50)
@@ -511,7 +522,118 @@ def figure2(data: dict[str, pd.DataFrame]) -> None:
     save(fig, "fig2_clinical_validation")
 
 
-def figure4_hrv(data: dict[str, pd.DataFrame]) -> None:
+LOSS_OUTCOMES = {
+    "d_hr_rem": "heart_rate_mean_during_rem",
+    "d_hr_nrem": "heart_rate_mean_during_nrem",
+    "d_hr_sleep": "heart_rate_mean_during_sleep",
+    "d_hr_wake": "heart_rate_mean_during_wake",
+}
+
+
+def p_value_text(p: float) -> str:
+    """p as text: two decimals from 0.01, else a power of ten (e.g. 2.5×10⁻¹⁵)."""
+    if p >= 0.01:
+        return f"p={p:.2f}"
+    mantissa, exponent = f"{p:.1e}".split("e")
+    superscript = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+    return f"p={mantissa}×10{str(int(exponent)).translate(superscript)}"
+
+
+def direction_arrows(ax: plt.Axes, left: str, right: str) -> None:
+    """Label each end of the x axis with an outward arrow, between the tick labels and the axis label."""
+    arrow = {"arrowstyle": "-|>", "color": BLACK, "linewidth": 0.7, "mutation_scale": 7}
+    y = -0.105
+    ax.annotate(left, xy=(0.0, y), xytext=(0.2, y), xycoords="axes fraction",
+                ha="left", va="center", fontsize=6.5, arrowprops=arrow)
+    ax.annotate(right, xy=(1.0, y), xytext=(0.8, y), xycoords="axes fraction",
+                ha="right", va="center", fontsize=6.5, arrowprops=arrow)
+
+
+def weight_change_panel(ax: plt.Axes, data: dict[str, pd.DataFrame]) -> None:
+    """Change in REM heart rate against weight change, never-GLP-1 participants and initiators."""
+    points = data["loss_points"]
+    slopes = data["loss_slopes"].query("outcome == 'd_hr_rem' and exposure_change == 'weight (kg)'")
+    slopes = slopes.set_index("cohort")
+    groups = [("never_glp1", "Never GLP-1", GREY, 2, 0.25, 1),
+              ("initiators_all_eligible", "Semaglutide initiators", VERMILLION, 9, 0.9, 3)]
+    for cohort, name, colour, size, alpha, z in groups:
+        frame = points[points.cohort.eq(cohort)]
+        row = slopes.loc[cohort]
+        slope_text = (f"{row.bpm_per_unit_lost:+.2f} bpm per kg lost "
+                      f"({row.lost_ci_low:+.2f} to {row.lost_ci_high:+.2f})").replace("-", "\u2212")
+        slope_text += f", {p_value_text(row.p)}"
+        ax.scatter(frame.d_weight, frame.d_hr_rem, s=size, color=colour, alpha=alpha,
+                   linewidths=0, zorder=z, label=f"{name} (n={len(frame):,})\n{slope_text}")
+        slope, intercept = np.polyfit(frame.d_weight, frame.d_hr_rem, 1)
+        grid = np.linspace(frame.d_weight.quantile(0.01), frame.d_weight.quantile(0.99), 50)
+        ax.plot(grid, intercept + slope * grid, color=BLACK if cohort == "never_glp1" else colour,
+                linewidth=1.1, zorder=z + 1)
+    ax.axhline(0, color=BLACK, linestyle="--", linewidth=0.7, zorder=0)
+    ax.axvline(0, color=BLACK, linestyle="--", linewidth=0.6, zorder=2)
+    controls = points[points.cohort.eq("never_glp1")]
+    initiators = points[points.cohort.eq("initiators_all_eligible")]
+    # Zero sits in the middle, with weight loss to the right and weight gain to the left.
+    half_width = max(abs(min(controls.d_weight.quantile(0.002), initiators.d_weight.min())),
+                     abs(controls.d_weight.quantile(0.998))) + 1
+    ax.set_xlim(half_width, -half_width)
+    ax.set_ylim(min(controls.d_hr_rem.quantile(0.002), initiators.d_hr_rem.min()) - 1,
+                max(controls.d_hr_rem.quantile(0.998), initiators.d_hr_rem.max()) + 1)
+    ax.set_xlabel("Weight change between visits (kg)", fontsize=7, labelpad=13)
+    ax.set_ylabel("REM sleep heart-rate change (bpm)")
+    clean_axis(ax, grid="both")
+    direction_arrows(ax, left="Weight gain", right="Weight loss")
+    ax.legend(title="Adjusted slope (95% CI), p", title_fontsize=6.5, fontsize=6.5,
+              frameon=False, loc="upper left", bbox_to_anchor=(-0.2, -0.17), ncol=1,
+              markerscale=2, alignment="left")
+    points.to_csv(TABLES / "figure_source_unified_fig4_weight_points.csv", index=False)
+
+
+def loss_matched_panel(ax: plt.Axes, data: dict[str, pd.DataFrame]) -> None:
+    """Each group's own heart-rate change after matching on the size of the weight or fat loss."""
+    matched = data["loss_matched"].copy()
+    rows, tick_labels, headers = [], [], []
+    for loss, name in [("d_weight", "Matched on weight loss"), ("d_fat_kg", "Matched on DXA fat loss")]:
+        block = matched[matched.matched_on.eq(loss)].set_index("outcome").loc[list(LOSS_OUTCOMES)]
+        headers.append((len(tick_labels), f"{name} ({int(block.n_pairs.iloc[0])} pairs)"))
+        tick_labels.append("")
+        rows.append(None)
+        for outcome, row in block.iterrows():
+            tick_labels.append(label(LOSS_OUTCOMES[outcome]))
+            rows.append(row)
+    for y, row in enumerate(rows):
+        if row is None:
+            continue
+        for prefix, offset, colour, marker in [("initiator", -0.17, VERMILLION, "o"),
+                                               ("never_glp1", +0.17, GREY, "s")]:
+            interval_point(ax, row[f"{prefix}_change"], row[f"{prefix}_change_ci_low"],
+                           row[f"{prefix}_change_ci_high"], y + offset, colour=colour,
+                           marker=marker, filled=True)
+        ax.annotate(f"{row.difference:+.2f}".replace("-", "\u2212"), xy=(1.0, y),
+                    xycoords=("axes fraction", "data"), xytext=(4, 0),
+                    textcoords="offset points", ha="left", va="center", fontsize=6.5)
+    ax.annotate("Difference\n(bpm)", xy=(1.0, -0.9), xycoords=("axes fraction", "data"),
+                xytext=(4, 0), textcoords="offset points", ha="left", va="bottom", fontsize=6.5)
+    ax.axvline(0, color=BLACK, linestyle="--", linewidth=0.8)
+    ax.set_yticks(range(len(tick_labels)), tick_labels)
+    for index, header in headers:
+        ax.annotate(header, xy=(0.0, index), xycoords=("axes fraction", "data"), xytext=(4, 0),
+                    textcoords="offset points", ha="left", va="center", fontweight="bold",
+                    fontsize=7, zorder=5,
+                    bbox={"boxstyle": "round,pad=0.35", "facecolor": "white",
+                          "edgecolor": LIGHT_GREY, "linewidth": 0.6})
+        ax.yaxis.get_major_ticks()[index].tick1line.set_visible(False)
+    ax.set_ylim(len(tick_labels) - 0.5, -1.0)
+    ax.set_xlabel("Heart-rate change between visits (bpm)")
+    clean_axis(ax)
+    ax.legend(handles=[
+        Line2D([], [], marker="o", color=VERMILLION, linestyle="none", label="Semaglutide initiators"),
+        Line2D([], [], marker="s", color=GREY, linestyle="none",
+               label="Never GLP-1, matched on the same loss"),
+    ], frameon=False, loc="upper center", bbox_to_anchor=(0.4, -0.17), ncol=1)
+    matched.to_csv(TABLES / "figure_source_unified_fig4_loss_matched.csv", index=False)
+
+
+def hrv_panel(ax: plt.Axes, data: dict[str, pd.DataFrame]) -> None:
     primary = data["primary"].set_index("measurement")
     models = data["hrv"].copy()
     models["measurement"] = models.model.str.extract(
@@ -530,12 +652,11 @@ def figure4_hrv(data: dict[str, pd.DataFrame]) -> None:
     ]
     models = models.set_index("measurement").loc[order].reset_index()
     models["baseline_sd"] = models.equivalence_margin_0p2_baseline_sd / 0.2
-    fig, ax = plt.subplots(figsize=(4.7, 3.5))
     y = np.arange(len(models))
-    for effect, low, high, offset, colour, marker, name in [
-        ("effect", "ci_low", "ci_high", -0.11, GREY, "o", "Unadjusted"),
+    for effect, low, high, offset, colour, marker in [
+        ("effect", "ci_low", "ci_high", -0.11, GREY, "o"),
         ("covariate_adjusted_intercept", "intercept_ci_low", "intercept_ci_high",
-         +0.11, GREEN, "s", "Adjusted for simultaneous state HR change"),
+         +0.11, GREEN, "s"),
     ]:
         plot = models.copy()
         for column in (effect, low, high):
@@ -553,8 +674,23 @@ def figure4_hrv(data: dict[str, pd.DataFrame]) -> None:
         Line2D([], [], marker="s", color=GREEN, linestyle="none",
                label="Heart-rate adjusted"),
     ], frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=1)
-    models.to_csv(TABLES / "figure_source_unified_fig4_hrv.csv", index=False)
-    save(fig, "fig4_hrv_rate_dependence", target_mm=118.0)
+    models.to_csv(TABLES / "figure_source_unified_figS7_hrv.csv", index=False)
+
+
+def figure4_weight_loss(data: dict[str, pd.DataFrame]) -> None:
+    fig, (scatter_ax, matched_ax) = plt.subplots(
+        1, 2, figsize=(7.0, 3.6), gridspec_kw={"width_ratios": [1.15, 1.0], "wspace": 0.55})
+    weight_change_panel(scatter_ax, data)
+    loss_matched_panel(matched_ax, data)
+    panel_label(scatter_ax, "a", x=-0.2)
+    panel_label(matched_ax, "b", x=-0.45)
+    save(fig, "fig4_weight_loss_comparison")
+
+
+def figure_s7_hrv(data: dict[str, pd.DataFrame]) -> None:
+    fig, ax = plt.subplots(figsize=(4.7, 3.5))
+    hrv_panel(ax, data)
+    save(fig, "figS7_hrv_rate_dependence", target_mm=118.0)
 
 
 def figure_s6_stage(data: dict[str, pd.DataFrame]) -> None:
@@ -575,11 +711,11 @@ def figure_s6_stage(data: dict[str, pd.DataFrame]) -> None:
         forest(ax, frame, colours=colours)
         ax.axvline(0, color=BLACK, linestyle="--", linewidth=0.8)
         short = {
-            "heart_rate_mean_during_rem": "REM",
+            "heart_rate_mean_during_rem": "REM sleep",
             "heart_rate_mean_during_light": "Light sleep",
             "heart_rate_mean_during_deep": "Deep sleep",
             "heart_rate_mean_during_wake": "Nocturnal wake",
-            "heart_rate_rem_minus_nrem": "REM − non-REM",
+            "heart_rate_rem_minus_nrem": "REM − NREM",
             "heart_rate_rem_minus_light": "REM − light",
             "heart_rate_rem_minus_deep": "REM − deep",
             "heart_rate_deep_minus_light": "Deep − light",
@@ -588,7 +724,7 @@ def figure_s6_stage(data: dict[str, pd.DataFrame]) -> None:
                       [f"{short[m]} (n={int(n)})" for m, n in
                        zip(frame.measurement, frame.n_pairs, strict=True)])
         ax.invert_yaxis()
-        ax.set_xlabel("DiD (bpm)")
+        ax.set_xlabel("Heart-rate DiD (bpm)")
         clean_axis(ax)
         panel_label(ax, letter, x=-0.55)
     raw.reset_index().to_csv(TABLES / "figure_source_unified_figS6_raw.csv", index=False)
@@ -607,13 +743,13 @@ def figure_s1(data: dict[str, pd.DataFrame]) -> None:
         "with a sleep visit before and ≥3 months after the recorded start",
         "with complete matching covariates and at least one sleep outcome",
         "matched 1:1 without control reuse",
-        "with both REM and non-REM heart rate at both visits",
+        "with both REM and NREM heart rate at both visits",
     ]
     reasons = [
         "no sleep study before and ≥3 months after the start",
-        "outcome/covariate incomplete",
+        "incomplete covariates or no sleep outcome",
         "outside propensity caliper",
-        "REM or non-REM value unavailable",
+        "REM or NREM value unavailable",
     ]
     fig, ax = plt.subplots(figsize=(7.2, 3.6))
     ax.set_xlim(0, 10)
@@ -637,15 +773,15 @@ def figure_s1(data: dict[str, pd.DataFrame]) -> None:
                     fontsize=6.6, color=GREY)
     ax.text(6.85, 4.70, "Primary matching specification", fontweight="bold", fontsize=8)
     ax.text(6.85, 4.28,
-            "Exact blocks\n• pre visit\n• post visit\n• sex\n• lipid-lowering therapy\n\n"
-            "Propensity + Mahalanobis\n• age, BMI, waist, hip\n• visceral fat (+ missingness)\n"
+            "Matched exactly\n• baseline visit\n• follow-up visit\n• sex\n• lipid-lowering therapy\n\n"
+            "Propensity score and Mahalanobis distance\n• age, BMI, waist, hip\n• visceral fat (or missing indicator)\n"
             "• diabetes, smoking\n• antihypertensive therapy",
             ha="left", va="top", fontsize=7, linespacing=1.38)
     gate = data["status"].set_index("modality").loc["sleep"]
     if not bool(gate.design_gate_pass):
         raise AssertionError("Figure S1 describes a sleep match that passed its design gates")
     ax.text(6.85, 1.22,
-            "Sleep design checks\n"
+            "Sleep matching criteria\n"
             f"retention: {counts[3]}/{counts[2]} = {counts[3] / counts[2]:.1%}\n"
             f"max |SMD|: {gate.max_abs_smd:.3f}\n"
             "both checks passed",
@@ -696,7 +832,7 @@ def figure_s5_exposure(data: dict[str, pd.DataFrame]) -> None:
         ("weight", "Weight", "kg"),
         ("sitting_blood_pressure_systolic", "Systolic blood pressure", "mmHg"),
         ("heart_rate_mean_during_rem", "REM sleep heart rate", "bpm"),
-        ("heart_rate_rem_minus_nrem", "REM − non-REM contrast", "bpm"),
+        ("heart_rate_rem_minus_nrem", "REM − NREM heart-rate difference", "bpm"),
     ]
     fig, axes = plt.subplots(2, 2, figsize=(7.2, 4.6), sharey=True,
                              gridspec_kw={"wspace": 0.10, "hspace": 0.62})
@@ -726,7 +862,7 @@ def figure_s5_exposure(data: dict[str, pd.DataFrame]) -> None:
         Line2D([], [], marker="o", color=VERMILLION, linestyle="none", label="1:1 matched"),
         Line2D([], [], marker="D", color=PURPLE, linestyle="none", label="Overlap weighted"),
         Line2D([], [], marker="o", markerfacecolor="white", markeredgecolor=GREY,
-               linestyle="none", label="Open: design check failed"),
+               linestyle="none", label="Open: matching criteria failed"),
     ], frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=3)
     frame.to_csv(TABLES / "figure_source_unified_figS5_exposure.csv", index=False)
     save(fig, "figS5_exposure_definitions")
@@ -790,7 +926,7 @@ def figure_s2_arms(data: dict[str, pd.DataFrame]) -> None:
     ax.legend(handles=[
         Line2D([], [], marker="s", color=GREY, linestyle="none", label="Matched controls"),
         Line2D([], [], marker="D", color=SKY, linestyle="none",
-               label="All never-GLP-1 participants"),
+               label="Whole untreated cohort"),
     ], frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=1)
     panel_label(ax, "b", x=-0.10)
     work.to_csv(TABLES / "figure_source_unified_figS2_arms.csv", index=False)
@@ -833,7 +969,7 @@ def figure_s4_designs(data: dict[str, pd.DataFrame]) -> None:
         *[Line2D([], [], marker=DESIGN_STYLE[d][2], color=DESIGN_STYLE[d][1],
                  linestyle="none", label=DESIGN_STYLE[d][0]) for d in offsets],
         Line2D([], [], marker="o", markerfacecolor="white", markeredgecolor=GREY,
-               linestyle="none", label="Open: design check failed"),
+               linestyle="none", label="Open: matching criteria failed"),
     ], frameon=False, loc="upper center", bbox_to_anchor=(0.45, -0.17), ncol=1)
     panel_label(ax, "a", x=-0.52)
 
@@ -853,9 +989,9 @@ def figure_s4_designs(data: dict[str, pd.DataFrame]) -> None:
     clean_axis(ax)
     ax.legend(handles=[
         Line2D([], [], marker="o", color=VERMILLION, linestyle="none",
-               label="Fixed-match bootstrap"),
+               label="Matched-pair bootstrap"),
         Line2D([], [], marker="s", color=GREEN, linestyle="none",
-               label=f"Redrawn-match bootstrap ({int(bootstrap.bootstrap_replicates_estimable.min())}"
+               label=f"Rematching bootstrap ({int(bootstrap.bootstrap_replicates_estimable.min())}"
                      " replicates)"),
     ], frameon=False, loc="upper center", bbox_to_anchor=(0.4, -0.17), ncol=1)
     panel_label(ax, "b", x=-0.62)
@@ -881,10 +1017,10 @@ def figure3_scale(data: dict[str, pd.DataFrame]) -> None:
                              gridspec_kw={"hspace": 0.62, "wspace": 0.55})
     for ax, values, estimate, low, high, null, xlabel, letter in [
         (axes[0, 0], per_pair.rem_minus_nrem_did, contrast.effect, contrast.ci_low,
-         contrast.ci_high, 0.0, "REM − non-REM DiD (bpm)", "a"),
+         contrast.ci_high, 0.0, "REM − NREM DiD (bpm)", "a"),
         (axes[0, 1], per_pair.ratio_of_ratios, ratio.excess_rise_ratio,
          ratio.excess_rise_ratio_ci_low, ratio.excess_rise_ratio_ci_high, 1.0,
-         "Ratio of proportional change,\nREM / non-REM", "b"),
+         "Ratio of proportional heart-rate change,\nREM / NREM sleep", "b"),
     ]:
         ax.scatter(values, jitter, s=7, color=GREY, alpha=0.55, linewidths=0, zorder=2)
         interval_point(ax, estimate, low, high, 0.62, colour=VERMILLION, marker="D",
@@ -910,7 +1046,7 @@ def figure3_scale(data: dict[str, pd.DataFrame]) -> None:
     ax.axvline(0, color=BLACK, linestyle="--", linewidth=0.8)
     ax.set_yticks(y, [label(m) for m in dependence.measurement])
     ax.set_ylim(len(dependence) - 0.5, -0.5)
-    ax.set_xlabel("Change in DiD per bpm of heart-rate level")
+    ax.set_xlabel("Change in DiD per bpm of mean heart rate")
     clean_axis(ax)
     panel_label(ax, "c", x=-0.52)
 
@@ -925,11 +1061,11 @@ def figure3_scale(data: dict[str, pd.DataFrame]) -> None:
                    filled=True, size=5, horizontal=False)
     ax.axhline(0, color=BLACK, linestyle="--", linewidth=0.8)
     ax.axvline(0, color=LIGHT_GREY, linewidth=0.8, zorder=1)
-    ax.set_xlabel("Nocturnal wake DiD, overall rise (bpm)")
-    ax.set_ylabel("REM − non-REM DiD (bpm)")
+    ax.set_xlabel("Nocturnal wake heart-rate DiD (bpm)")
+    ax.set_ylabel("REM − NREM DiD (bpm)")
     slope_text = (
         f"slope {systemic.amplification_slope:+.3f} (p={systemic.amplification_slope_p:.2f}); "
-        f"excess at zero rise {systemic.gap_at_zero_systemic_rise:+.2f} bpm"
+        f"REM − NREM at zero wake change {systemic.gap_at_zero_systemic_rise:+.2f} bpm"
     ).replace("-", "−")
     # Above the axes: every corner of the scatter holds pairs, so an inset label would hide one.
     ax.text(1.0, 1.02, slope_text, transform=ax.transAxes, ha="right", va="bottom",
@@ -983,13 +1119,14 @@ def main() -> int:
     figure1_sources(data)
     figure2(data)
     figure3_scale(data)
-    figure4_hrv(data)
+    figure4_weight_loss(data)
     figure_s1(data)
     figure_s2_arms(data)
     figure_s3_gates(data)
     figure_s4_designs(data)
     figure_s5_exposure(data)
     figure_s6_stage(data)
+    figure_s7_hrv(data)
     print("All unified-cohort paper figures built from versioned aggregate outputs.")
     return 0
 
