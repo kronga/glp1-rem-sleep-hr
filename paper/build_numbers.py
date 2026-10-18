@@ -75,11 +75,11 @@ def qval(value: float) -> str:
 
 # Manuscript wording rules: sleep stages vs states, "nocturnal wake", no jargon.
 TEXT_LABELS = {
-    "heart_rate_mean_during_sleep": "Heart rate, whole sleep",
+    "heart_rate_mean_during_sleep": "Heart rate, sleep overall",
     "heart_rate_mean_during_wake": "Heart rate, nocturnal wake",
-    "heart_rate_mean_during_nrem": "Heart rate, non-REM sleep",
+    "heart_rate_mean_during_nrem": "Heart rate, NREM sleep",
     "heart_rate_mean_during_rem": "Heart rate, REM sleep",
-    "heart_rate_rem_minus_nrem": "Heart rate, REM minus non-REM sleep",
+    "heart_rate_rem_minus_nrem": "Heart rate, REM minus NREM sleep",
     "heart_rate_mean_during_light": "Heart rate, light sleep",
     "heart_rate_mean_during_deep": "Heart rate, deep sleep",
     "heart_rate_rem_minus_light": "Heart rate, REM minus light sleep",
@@ -88,9 +88,9 @@ TEXT_LABELS = {
     "neurokit_hrv_time_pnn20_during_rem": "pNN20, REM sleep",
     "neurokit_hrv_time_rmssd_during_rem": "RMSSD, REM sleep",
     "neurokit_hrv_time_sdnn_during_rem": "SDNN, REM sleep",
-    "neurokit_hrv_time_pnn20_during_nrem": "pNN20, non-REM sleep",
-    "neurokit_hrv_time_rmssd_during_nrem": "RMSSD, non-REM sleep",
-    "neurokit_hrv_time_sdnn_during_nrem": "SDNN, non-REM sleep",
+    "neurokit_hrv_time_pnn20_during_nrem": "pNN20, NREM sleep",
+    "neurokit_hrv_time_rmssd_during_nrem": "RMSSD, NREM sleep",
+    "neurokit_hrv_time_sdnn_during_nrem": "SDNN, NREM sleep",
     "ahi": "Apnea-hypopnea index (AHI)", "ahi_4_percent": "AHI, 4% desaturation",
     "ahi_during_rem": "AHI, REM sleep", "odi": "Oxygen desaturation index (ODI)",
     "odi_during_rem": "ODI, REM sleep", "rdi_during_rem": "Respiratory disturbance index, REM sleep",
@@ -386,7 +386,7 @@ def main() -> int:
         "Oldham p": f"{r.oldham_slope_p:.2f}", "post/pre SD": f"{r.post_pre_sd_ratio:.2f}"}
         for r in dep.itertuples(index=False)])), ""]
     sysr = robust["systemic_rise_adjustment"]
-    sections += ["## REM − non-REM gap vs systemic rise", "", md_table(pd.DataFrame([{
+    sections += ["## REM − NREM gap vs systemic rise", "", md_table(pd.DataFrame([{
         "Scale": r.scale, "Regressor": r.regressor, "n": int(r.n),
         "Slope (95% CI)": est(r.amplification_slope, r.amplification_slope_ci_low, r.amplification_slope_ci_high, 3),
         "Slope p": f"{r.amplification_slope_p:.2f}", "r": num(r.correlation_gap_regressor, 2),

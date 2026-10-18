@@ -854,7 +854,7 @@ def variant_d_paired_contrast(ax: plt.Axes, panel_letter: str = "d",
 PRIMARY_1TO1 = {
     "REM": "heart_rate_mean_during_rem",
     "NREM": "heart_rate_mean_during_nrem",
-    "Whole sleep": "heart_rate_mean_during_sleep",
+    "Overall sleep": "heart_rate_mean_during_sleep",
     "Nocturnal wake": "heart_rate_mean_during_wake",
 }
 
