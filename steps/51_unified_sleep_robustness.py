@@ -159,7 +159,7 @@ class Pipeline:
     def rebuild(self, modality: str, exposure_key: str, reference_run: Path) -> dict:
         """Reconstruct one step-48 match and prove it is the versioned one."""
         values, dates = self.panel(modality)
-        outcome, windows, _audit = self.step48.run_instrument(
+        outcome, windows, audit = self.step48.run_instrument(
             self.step26, self.step31, self.step47, modality, values,
             self.exposure(exposure_key), dates, self.covariates, self.excluded,
             self.step48.FLOOR_MONTHS, self.step48.DEFAULT_BLOCKING,
@@ -171,6 +171,8 @@ class Pipeline:
                            f"{exposure_key}/{modality}")
         outcome["values"] = values
         outcome["windows"] = windows
+        # Per-initiator pairing outcome (why an initiator has no window); read by step 54.
+        outcome["audit"] = audit
         outcome["deltas"] = self.step26.unit_deltas(values, outcome["units"])
         return outcome
 

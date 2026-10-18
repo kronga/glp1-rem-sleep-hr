@@ -32,6 +32,7 @@ SECONDARY = RUN / "outputs/unified_cohort/secondary_sleep"
 ALTERNATIVE = RUN / "outputs/unified_cohort/alternative_matching"
 ROBUST = RUN / "outputs/unified_cohort/sleep_robustness"
 NATURAL_LOSS = RUN / "outputs/natural_weight_loss_sleep_hr"
+SELECTION = RUN / "outputs/cohort_selection"
 FIGURES = RUN / "paper/figures/final"
 TABLES = RUN / "paper/tables"
 
@@ -215,6 +216,13 @@ NATURAL_LOSS_FILES = {
     "loss_matched": "loss_matched_comparison",
 }
 
+# steps/54_cohort_selection.py outputs, read by Supplementary Figure S1.
+SELECTION_FILES = {
+    "initiator_funnel": "initiator_funnel",
+    "pairing_losses": "sleep_pairing_losses",
+    "control_funnel": "control_funnel",
+}
+
 
 def load_inputs() -> dict[str, pd.DataFrame]:
     required = [
@@ -233,6 +241,7 @@ def load_inputs() -> dict[str, pd.DataFrame]:
         ALTERNATIVE / "posthoc_selected_hierarchical_results.csv",
         *(ROBUST / f"{name}.csv" for name in ROBUST_FILES.values()),
         *(NATURAL_LOSS / f"{name}.csv" for name in NATURAL_LOSS_FILES.values()),
+        *(SELECTION / f"{name}.csv" for name in SELECTION_FILES.values()),
     ]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
@@ -258,6 +267,7 @@ def load_inputs() -> dict[str, pd.DataFrame]:
         **{key: pd.read_csv(ROBUST / f"{name}.csv") for key, name in ROBUST_FILES.items()},
         **{key: pd.read_csv(NATURAL_LOSS / f"{name}.csv")
            for key, name in NATURAL_LOSS_FILES.items()},
+        **{key: pd.read_csv(SELECTION / f"{name}.csv") for key, name in SELECTION_FILES.items()},
     }
 
 
@@ -731,65 +741,112 @@ def figure_s6_stage(data: dict[str, pd.DataFrame]) -> None:
     save(fig, "figS6_stage_resolved_heart_rate")
 
 
+def flow_box(ax: plt.Axes, x: float, y: float, width: float, n: int, text: str) -> None:
+    """One cohort-flow box: bold count at left, description to its right."""
+    ax.add_patch(FancyBboxPatch((x, y - 0.32), width, 0.64, boxstyle="round,pad=0.03",
+                                facecolor="white", edgecolor=BLACK, linewidth=0.9))
+    ax.text(x + 0.18, y, f"n = {n:,}", ha="left", va="center", fontweight="bold", fontsize=7.4)
+    ax.text(x + 1.32, y, text, ha="left", va="center", fontsize=6.8, linespacing=1.15)
+
+
+def flow_arrow(ax: plt.Axes, x: float, y_from: float, y_to: float, removed: int,
+               reason: str) -> None:
+    """Downward arrow between two boxes, labeled with the number removed and why."""
+    ax.add_patch(FancyArrowPatch((x, y_from - 0.35), (x, y_to + 0.35), arrowstyle="-|>",
+                                 mutation_scale=8, linewidth=0.8, color=GREY))
+    # A long arrow carries a multi-line reason, so its label starts just below the box above.
+    long_gap = y_from - y_to > 1.6
+    y = y_from - 0.5 if long_gap else (y_from + y_to) / 2
+    align = "top" if long_gap else "center"
+    ax.text(x + 0.16, y, f"−{removed:,}", ha="left", va=align, fontsize=6.8,
+            fontweight="bold", color=GREY)
+    ax.text(x + 0.92, y, reason, ha="left", va=align, fontsize=6.4, color=GREY,
+            linespacing=1.2)
+
+
 def figure_s1(data: dict[str, pd.DataFrame]) -> None:
     primary = data["primary"]
-    funnel = data["funnel"]
-    sleep = funnel[funnel.instrument.eq("sleep")].set_index("stage").n
-    counts = [494, int(sleep.iloc[1]), int(sleep.iloc[2]), int(sleep.iloc[3]),
-              int(primary.loc[primary.measurement.eq("heart_rate_rem_minus_nrem"),
-                              "n_pairs"].iloc[0])]
-    labels = [
-        "semaglutide initiators with a plausible recorded date",
-        "with a sleep visit before and ≥3 months after the recorded start",
-        "with complete matching covariates and at least one sleep outcome",
-        "matched 1:1 without control reuse",
-        "with both REM and NREM heart rate at both visits",
+    sleep = data["funnel"][data["funnel"].instrument.eq("sleep")].set_index("stage").n
+    upstream = data["initiator_funnel"].set_index("step")
+    controls = data["control_funnel"].set_index("step")
+    losses = data["pairing_losses"]
+    final_pairs = int(primary.loc[primary.measurement.eq("heart_rate_rem_minus_nrem"),
+                                  "n_pairs"].iloc[0])
+    initiators = [
+        (int(upstream.n["any_semaglutide"]), "participants with any semaglutide record", None),
+        (int(upstream.n["single_agent"]), "with no record of another\nGLP-1 receptor agonist",
+         "record of another GLP-1 receptor agonist"),
+        (int(upstream.n["initiators"]), "semaglutide initiators with a\nplausible recorded start",
+         "no start date, or one before 2018"),
+        (int(sleep.iloc[1]), "with a sleep study before and\n≥3 months after the start",
+         "no paired sleep studies:\n" + "\n".join(
+             f"{row.n} {row.reason}" for row in losses.itertuples())),
+        (int(sleep.iloc[2]), "with complete matching covariates\nand at least one sleep outcome",
+         "incomplete covariates or no sleep outcome"),
+        (int(sleep.iloc[3]), "initiators matched 1:1\nwithout control reuse",
+         "outside propensity caliper"),
+        (final_pairs, "pairs with REM and NREM heart\nrate at both visits",
+         "REM or NREM value unavailable"),
     ]
-    reasons = [
-        "no sleep study before and ≥3 months after the start",
-        "incomplete covariates or no sleep outcome",
-        "outside propensity caliper",
-        "REM or NREM value unavailable",
+    if initiators[2][0] != 494 or initiators[3][0] != int(upstream.n["sleep_paired"]):
+        raise AssertionError("Figure S1 funnel disagrees with the step-54 cohort selection")
+    if int(controls.n["matched"]) != initiators[5][0]:
+        raise AssertionError("matched controls differ from matched initiators")
+    control_rows = [
+        (int(controls.n["visit"]), "HPP participants with a\ndated study visit", None),
+        (int(controls.n["never_glp1"]), "with no GLP-1 receptor\nagonist record",
+         "any GLP-1 receptor agonist record"),
+        (int(controls.n["sleep_pool"]), "eligible controls: sleep studies\nat an initiator's visit pair",
+         "no sleep studies at an initiator's\nvisit pair, or incomplete covariates"),
+        (int(controls.n["matched"]), "matched controls", "not selected by the match"),
     ]
-    fig, ax = plt.subplots(figsize=(7.2, 3.6))
+
+    fig, ax = plt.subplots(figsize=(7.2, 7.0))
     ax.set_xlim(0, 10)
-    ax.set_ylim(-0.1, 5.2)
+    ax.set_ylim(0.75, 13.55)
     ax.axis("off")
-    ys = np.linspace(4.75, 0.55, len(counts))
-    for i, (y, n, text) in enumerate(zip(ys, counts, labels, strict=True)):
-        ax.add_patch(FancyBboxPatch((0.15, y - 0.30), 6.25, 0.60,
-                                    boxstyle="round,pad=0.03", facecolor="white",
-                                    edgecolor=BLACK, linewidth=0.9))
-        ax.text(0.42, y, f"n = {n}", ha="left", va="center", fontweight="bold")
-        ax.text(1.48, y, text, ha="left", va="center", fontsize=7)
-        if i:
-            lost = counts[i - 1] - n
-            ax.add_patch(FancyArrowPatch((0.92, ys[i - 1] - 0.33), (0.92, y + 0.33),
-                                         arrowstyle="-|>", mutation_scale=8,
-                                         linewidth=0.8, color=GREY))
-            ax.text(1.32, (ys[i - 1] + y) / 2, f"−{lost}", ha="left", va="center",
-                    fontsize=7, fontweight="bold", color=GREY)
-            ax.text(2.08, (ys[i - 1] + y) / 2, reasons[i - 1], ha="left", va="center",
-                    fontsize=6.6, color=GREY)
-    ax.text(6.85, 4.70, "Primary matching specification", fontweight="bold", fontsize=8)
-    ax.text(6.85, 4.28,
-            "Matched exactly\n• baseline visit\n• follow-up visit\n• sex\n• lipid-lowering therapy\n\n"
-            "Propensity score and Mahalanobis distance\n• age, BMI, waist, hip\n• visceral fat (or missing indicator)\n"
-            "• diabetes, smoking\n• antihypertensive therapy",
-            ha="left", va="top", fontsize=7, linespacing=1.38)
+    initiator_y = [12.6, 11.25, 9.9, 7.85, 6.5, 5.15, 3.8]
+    control_y = [12.6, 11.25, 7.85, 5.15]
+    left_x, left_width, right_x, right_width = 0.05, 5.0, 5.95, 4.0
+    ax.text(left_x, 13.1, "Semaglutide initiators", fontweight="bold", fontsize=8,
+            va="bottom")
+    ax.text(right_x, 13.1, "Controls who never took a GLP-1 drug", fontweight="bold",
+            fontsize=8, va="bottom")
+    for column, rows, ys, x, width in [("initiators", initiators, initiator_y, left_x, left_width),
+                                       ("controls", control_rows, control_y, right_x, right_width)]:
+        for i, ((n, text, reason), y) in enumerate(zip(rows, ys, strict=True)):
+            flow_box(ax, x, y, width, n, text)
+            if i:
+                flow_arrow(ax, x + 0.45, ys[i - 1], y, rows[i - 1][0] - n, reason)
+    # The 1:1 match links the two columns.
+    ax.annotate("", xy=(right_x - 0.02, initiator_y[5]), xytext=(left_x + left_width + 0.06,
+                initiator_y[5]), arrowprops={"arrowstyle": "<|-|>", "color": GREEN,
+                                             "linewidth": 1.0, "mutation_scale": 8})
+    ax.text((left_x + left_width + right_x) / 2, initiator_y[5] + 0.16, "1:1", ha="center",
+            va="bottom", fontsize=7, color=GREEN, fontweight="bold")
+
+    ax.text(0.05, 2.95, "Primary matching specification", fontweight="bold", fontsize=8)
+    ax.text(0.05, 2.62, "Matched exactly\n• baseline visit\n• follow-up visit\n• sex\n"
+            "• lipid-lowering therapy", ha="left", va="top", fontsize=7, linespacing=1.32)
+    ax.text(2.65, 2.62, "Propensity score and Mahalanobis distance\n• age, BMI, waist, hip\n"
+            "• visceral fat (or missing indicator)\n• diabetes, smoking\n"
+            "• antihypertensive therapy", ha="left", va="top", fontsize=7, linespacing=1.32)
     gate = data["status"].set_index("modality").loc["sleep"]
     if not bool(gate.design_gate_pass):
         raise AssertionError("Figure S1 describes a sleep match that passed its design gates")
-    ax.text(6.85, 1.22,
+    eligible, matched = initiators[4][0], initiators[5][0]
+    ax.text(7.05, 2.62,
             "Sleep matching criteria\n"
-            f"retention: {counts[3]}/{counts[2]} = {counts[3] / counts[2]:.1%}\n"
+            f"retention: {matched}/{eligible} = {matched / eligible:.1%}\n"
             f"max |SMD|: {gate.max_abs_smd:.3f}\n"
             "both checks passed",
             ha="left", va="top", fontsize=7, color=GREEN, fontweight="bold",
             bbox={"boxstyle": "round,pad=0.35", "facecolor": "white",
                   "edgecolor": GREEN, "linewidth": 0.9})
-    pd.DataFrame({"stage": labels, "n": counts}).to_csv(
-        TABLES / "figure_source_unified_figS1_funnel.csv", index=False)
+    pd.DataFrame(
+        [{"arm": "initiators", "stage": text.replace("\n", " "), "n": n} for n, text, _ in initiators]
+        + [{"arm": "controls", "stage": text.replace("\n", " "), "n": n} for n, text, _ in control_rows]
+    ).to_csv(TABLES / "figure_source_unified_figS1_funnel.csv", index=False)
     save(fig, "figS1_study_design")
 
 

@@ -20,6 +20,8 @@ from build_unified_figures import ALTERNATIVE, FINAL_RUN, LABELS, ROBUST, SECOND
 PAPER = Path(__file__).resolve().parent
 TABLES = PAPER / "tables"
 RUNS = FINAL_RUN.parent
+SUBGROUPS = PAPER.parent / "outputs/sleep_subgroups"     # steps/53_sleep_subgroups.py
+SELECTION = PAPER.parent / "outputs/cohort_selection"   # steps/54_cohort_selection.py
 
 UNITS = {
     "sleep:heart_rate": "bpm", "sleep:neurokit_hrv_time_pnn20": "%",
@@ -185,6 +187,59 @@ def design_table(status: pd.DataFrame, primary: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+def subgroup_table(subgroups: pd.DataFrame, primary: pd.DataFrame) -> pd.DataFrame:
+    """Supplementary Table S3: REM heart-rate and REM minus NREM DiD by subgroup."""
+    outcomes = {"heart_rate_mean_during_rem": "REM sleep heart rate, bpm",
+                "heart_rate_rem_minus_nrem": "REM minus NREM heart rate, bpm"}
+    whole = primary[primary.modality.eq("sleep")].set_index("measurement")
+    rows = [{"Subgroup": "All pairs", "Pairs": int(whole.loc["heart_rate_rem_minus_nrem", "n_pairs"]),
+             **{name: est(whole.loc[m, "effect"], whole.loc[m, "ci_low"], whole.loc[m, "ci_high"])
+                for m, name in outcomes.items()}}]
+    by_outcome = {m: subgroups[subgroups.measurement.eq(m)] for m in outcomes}
+    first = by_outcome["heart_rate_mean_during_rem"]
+    for variable in first.subgroup_variable.unique():
+        levels = first[first.subgroup_variable.eq(variable)]
+        for level in levels.level:
+            cells = {}
+            for m, name in outcomes.items():
+                row = by_outcome[m].set_index(["subgroup_variable", "level"]).loc[(variable, level)]
+                cells[name] = est(row.estimate, row.ci_low, row.ci_high)
+                pairs = int(row.n_pairs)
+            text = level.replace(">=", "≥").replace("kg/m2", "kg/m²")
+            rows.append({"Subgroup": text, "Pairs": pairs, **cells})
+        cells = {}
+        for m, name in outcomes.items():
+            row = by_outcome[m][by_outcome[m].subgroup_variable.eq(variable)].iloc[0]
+            cells[name] = (f"{est(row.difference_vs_reference, row.difference_ci_low, row.difference_ci_high)}"
+                           f"; p={row.difference_p:.2f}")
+        rows.append({"Subgroup": "Difference", "Pairs": "", **cells})
+    return pd.DataFrame(rows)
+
+
+def paired_unpaired_table(characteristics: pd.DataFrame) -> pd.DataFrame:
+    """Supplementary Table S4: initiators with vs without paired sleep studies."""
+    frame = characteristics.set_index("characteristic")
+    measured = frame.loc["With covariates measured before the start"]
+    total = frame.loc["Initiators"]
+    paired_header = f"With paired sleep studies (n={int(measured.paired_value)})"
+    unpaired_header = (f"Without paired sleep studies (n={int(measured.unpaired_value)} "
+                       f"of {int(total.unpaired_value)})")
+    rows = []
+    for name, row in frame.iterrows():
+        if row.kind == "continuous":
+            digits = 1
+            paired = f"{row.paired_mean:.{digits}f} ± {row.paired_sd:.{digits}f}"
+            unpaired = f"{row.unpaired_mean:.{digits}f} ± {row.unpaired_sd:.{digits}f}"
+        elif row.kind == "binary":
+            paired = f"{int(row.paired_n)} ({row.paired_pct:.1f}%)"
+            unpaired = f"{int(row.unpaired_n)} ({row.unpaired_pct:.1f}%)"
+        else:
+            continue
+        rows.append({"Characteristic": name, paired_header: paired,
+                     unpaired_header: unpaired, "SMD": num(row.smd, 3)})
+    return pd.DataFrame(rows)
+
+
 def selective_inference_line(primary: pd.DataFrame) -> str:
     """Benjamini-Bogomolov: test inside the R selected of m gated families at q*R/m."""
     gates = primary.dropna(subset=["modality_gate_p"]).drop_duplicates("modality")
@@ -216,6 +271,11 @@ def main() -> int:
     raw_design = pd.read_csv(SECONDARY / "raw_stage_design.csv").iloc[0]
     weighted = pd.read_csv(ALTERNATIVE / "endpoint_estimates.csv")
     weighted_q = pd.read_csv(ALTERNATIVE / "posthoc_selected_hierarchical_results.csv")
+    subgroups = pd.read_csv(SUBGROUPS / "subgroup_estimates.csv")
+    characteristics = pd.read_csv(SELECTION / "paired_vs_unpaired_initiators.csv")
+    initiator_funnel = pd.read_csv(SELECTION / "initiator_funnel.csv")
+    pairing_losses = pd.read_csv(SELECTION / "sleep_pairing_losses.csv")
+    control_funnel = pd.read_csv(SELECTION / "control_funnel.csv")
     sleep_status = status.set_index("modality").loc["sleep"]
     n_sleep = int(sleep_status.matched)
     # Gate status comes from the run, so a rerun that moves a modality across the gate moves
@@ -239,6 +299,8 @@ def main() -> int:
             in_modality_order(
                 primary[primary.modality.isin(passing)]
                 .sort_values(["claim_eligible", "fdr_within_modality"], ascending=[False, True]))),
+        "tableS3_subgroups": subgroup_table(subgroups, primary),
+        "tableS4_paired_vs_unpaired": paired_unpaired_table(characteristics),
     }
     for name, frame in tables.items():
         (TABLES / f"{name}.md").write_text(md_table(frame) + "\n")
@@ -270,7 +332,14 @@ def main() -> int:
                 + "; the 272 microbial pathways are not listed)", "",
                 md_table(tables["tableS1_passing_modalities"]), "",
                 "## Failed-gate modalities, primary 1:1 (not claim-eligible)", "",
-                md_table(estimate_rows(primary[primary.modality.isin(failing)])), ""]
+                md_table(estimate_rows(primary[primary.modality.isin(failing)])), "",
+                "## Cohort selection (Supplementary Figure S1)", "",
+                "Initiators:", "", md_table(initiator_funnel.fillna("")), "",
+                "Sleep pairing losses:", "", md_table(pairing_losses[["reason", "n"]]), "",
+                "Controls:", "", md_table(control_funnel.fillna("")), "",
+                "## Supplementary Table S3. Subgroups", "", md_table(tables["tableS3_subgroups"]), "",
+                "## Supplementary Table S4. Initiators with and without paired sleep studies", "",
+                md_table(tables["tableS4_paired_vs_unpaired"]), ""]
 
     contrasts = robust["absolute_stage_contrasts"]
     sections += ["## Paired heart-rate contrasts (90 pairs, paired t, BH within the three)", "",
