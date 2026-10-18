@@ -41,7 +41,7 @@ This runs the pipeline in order:
 |---|---|
 | `transitions`, `upstream` | Medication exposure tables and intermediate cohorts |
 | `cohort` | Matched cohorts and primary estimates for every outcome |
-| `secondary` | Secondary sleep analyses, alternative matching designs, robustness analyses |
+| `secondary` | Secondary sleep analyses, sleep-stage proportions, alternative matching designs, robustness analyses |
 | `figs` | Main and supplementary figures (`paper/figures/final/`) |
 | `numbers` | Every number reported in the text (`paper/NUMBERS.md`, `paper/tables/`) |
 

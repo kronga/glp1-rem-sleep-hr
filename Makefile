@@ -29,8 +29,11 @@ cohort:
 
 # Sleep secondary analyses, overlap-weighted alternative matching, sleep robustness, the
 # comparison with weight loss without the drug (Figure 4), subgroups (Supplementary Table S3)
-# and cohort selection (Supplementary Figure S1 and Table S4).
+# and cohort selection (Supplementary Figure S1 and Table S4). Step 33 gives the sleep-stage
+# proportions across all HPP visits that the Results compare with polysomnographic norms; the
+# matched change in REM proportion comes from step 51.
 secondary:
+	$(PY) steps/33_sleep_staging_verification.py
 	$(PY) steps/49_unified_sleep_secondary.py
 	$(PY) steps/50_unified_alternative_matching.py
 	$(PY) steps/51_unified_sleep_robustness.py
