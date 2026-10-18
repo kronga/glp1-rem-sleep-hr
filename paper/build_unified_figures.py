@@ -1121,12 +1121,13 @@ def figure3_scale(data: dict[str, pd.DataFrame]) -> None:
     ax.set_xlabel("Nocturnal wake heart-rate DiD (bpm)")
     ax.set_ylabel("REM − NREM DiD (bpm)")
     slope_text = (
-        f"slope {systemic.amplification_slope:+.3f} (p={systemic.amplification_slope_p:.2f}); "
+        f"slope {systemic.amplification_slope:+.3f} (p={systemic.amplification_slope_p:.2f})\n"
         f"REM − NREM at zero wake change {systemic.gap_at_zero_systemic_rise:+.2f} bpm"
     ).replace("-", "−")
     # Above the axes: every corner of the scatter holds pairs, so an inset label would hide one.
+    # Two lines keep the text inside the panel's width, clear of the panel letter.
     ax.text(1.0, 1.02, slope_text, transform=ax.transAxes, ha="right", va="bottom",
-            fontsize=6.4, color=GREY)
+            fontsize=6.4, color=GREY, linespacing=1.25)
     clean_axis(ax, grid="both")
     panel_label(ax, "d", x=-0.2)
     per_pair.to_csv(TABLES / "figure_source_unified_fig3_per_pair.csv", index=False)
